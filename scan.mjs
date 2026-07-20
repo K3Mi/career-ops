@@ -627,6 +627,18 @@ function scanHistoryPolicy(config = {}) {
   };
 }
 
+// Case-insensitive dedup key for a job posting URL. scan.mjs and
+// scan-ats-full.mjs run as separate processes and can independently produce
+// different casing for the identical posting (e.g. a Workday tenant/site
+// path segment normalized differently by each scanner), which a plain
+// case-sensitive Set silently treats as two different URLs. Path casing is
+// not meaningfully distinct for any provider these scanners target, so
+// lowercasing here is safe and matches the same case-insensitive-substring
+// convention portals.yml's location_filter/title_filter already use.
+export function dedupKey(url) {
+  return String(url ?? '').toLowerCase();
+}
+
 export function loadSeenUrls(policy = {}) {
   const seen = new Set();
   let recheckEligible = 0;
@@ -637,7 +649,7 @@ export function loadSeenUrls(policy = {}) {
     for (const line of lines.slice(1)) { // skip header
       const [url, firstSeen, , , , status = 'added'] = line.split('\t');
       if (!url) continue;
-      if (shouldDedupScanHistoryRow({ firstSeen, status }, policy)) seen.add(url);
+      if (shouldDedupScanHistoryRow({ firstSeen, status }, policy)) seen.add(dedupKey(url));
       else recheckEligible++;
     }
   }
@@ -646,7 +658,7 @@ export function loadSeenUrls(policy = {}) {
   if (existsSync(PIPELINE_PATH)) {
     const text = readFileSync(PIPELINE_PATH, 'utf-8');
     for (const match of text.matchAll(/- \[[ x]\] (https?:\/\/\S+)/g)) {
-      seen.add(match[1]);
+      seen.add(dedupKey(match[1]));
     }
   }
 
@@ -654,7 +666,7 @@ export function loadSeenUrls(policy = {}) {
   if (existsSync(APPLICATIONS_PATH)) {
     const text = readFileSync(APPLICATIONS_PATH, 'utf-8');
     for (const match of text.matchAll(/https?:\/\/[^\s|)]+/g)) {
-      seen.add(match[0]);
+      seen.add(dedupKey(match[0]));
     }
   }
 
@@ -1679,7 +1691,7 @@ async function main() {
           totalFilteredVisa++;
           continue;
         }
-        if (seenUrls.has(job.url)) {
+        if (seenUrls.has(dedupKey(job.url))) {
           totalDupes++;
           continue;
         }
@@ -1698,7 +1710,7 @@ async function main() {
           continue;
         }
         // Mark as seen to avoid intra-scan dupes
-        seenUrls.add(job.url);
+        seenUrls.add(dedupKey(job.url));
         seenCompanyRoles.add(key);
         // Tag with the company's careers domain so verify can offer a 404/410
         // rediscovery fallback. A null domain (no careers_url) marks the offer

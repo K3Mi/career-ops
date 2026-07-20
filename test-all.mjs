@@ -5384,6 +5384,36 @@ try {
   fail(`merge-tracker URL-sourced req-number test crashed: ${e.message}`);
 }
 
+// ── SCAN DEDUP: CASE-INSENSITIVE URL MATCHING ──────────────────────────
+// scan.mjs and scan-ats-full.mjs run as separate processes and can each
+// produce different casing for the identical posting (e.g. a Workday
+// tenant/site path segment normalized differently by each scanner). A plain
+// case-sensitive Set silently treats those as two different URLs, letting
+// the same posting land in the pipeline twice — this is exactly how a
+// Kyndryl "Solution Architect – Power BI Migration" posting was added once
+// by each scanner on 2026-07-20 (KyndrylProfessionalCareers vs
+// kyndrylprofessionalcareers in the URL path).
+console.log('\n🧪 Testing scan dedup case-insensitive URL matching...');
+try {
+  const { dedupKey } = await import(pathToFileURL(join(ROOT, 'scan.mjs')).href);
+  const a = 'https://kyndryl.wd5.myworkdayjobs.com/KyndrylProfessionalCareers/job/Bangalore-Karnataka-India/Solution-Architect---Power-BI-Migration_R-63108';
+  const b = 'https://kyndryl.wd5.myworkdayjobs.com/kyndrylprofessionalcareers/job/bangalore-karnataka-india/solution-architect---power-bi-migration_r-63108';
+  const seen = new Set();
+  seen.add(dedupKey(a));
+  if (seen.has(dedupKey(b))) {
+    pass('dedupKey() catches the identical posting under different URL casing');
+  } else {
+    fail('dedupKey() failed to catch a case-only URL duplicate (Kyndryl regression)');
+  }
+  if (dedupKey('https://Example.com/Job/123') === 'https://example.com/job/123') {
+    pass('dedupKey() lowercases consistently');
+  } else {
+    fail('dedupKey() lowercasing is inconsistent');
+  }
+} catch (e) {
+  fail(`scan dedup case-insensitivity test crashed: ${e.message}`);
+}
+
 // ── MERGE-TRACKER CROSS-CHANNEL VIA GUARD: NON-LATIN AGENCIES (#1603) ─────
 // normalizeCompany() strips [^a-z0-9], so two different non-Latin agency
 // names both collapse to '' and the #1596 cross-channel guard treated them
