@@ -190,6 +190,50 @@ function extractReqNumber(notes) {
   return m ? m[1].toUpperCase() : null;
 }
 
+// Matches a distinguishing job/req ID straight out of a job-posting URL:
+// Workday's `_R66062-1` suffix, SmartRecruiters/Greenhouse/Oracle's trailing
+// numeric posting ID (`/job/22536`, `/postings/744000...`), etc.
+const URL_JOB_ID_RE = /[_/](?:r|req|job)[-_]?(\d[\w-]*)|\/(\d{5,})(?:[/?#]|$)/i;
+
+function extractUrlJobId(url) {
+  if (!url) return null;
+  const m = String(url).match(URL_JOB_ID_RE);
+  if (!m) return null;
+  return (m[1] || m[2] || '').toUpperCase() || null;
+}
+
+/**
+ * Fallback source for the req/job-number guard (#1524): reads the linked
+ * report file's own `**URL:**` line and extracts a job ID from it.
+ *
+ * The Notes-text guard above only works when an evaluator restates the req#
+ * in prose, which doesn't always happen. Every report is required to carry
+ * its posting URL verbatim (modes/oferta.md report format), so that URL is a
+ * far more reliable source of a distinguishing ID than free-text Notes —
+ * this is what actually caught two distinct same-titled Motorola Solutions
+ * postings that Notes-only extraction missed (#1524 follow-up).
+ *
+ * Best-effort only: any failure (missing file, no URL line, no extractable
+ * ID) returns null and the caller falls back to existing behavior unchanged.
+ *
+ * @param {string} reportLink - Markdown report link, e.g. `[048](reports/048-....md)`.
+ * @returns {string|null} Uppercased job ID, or null when none is found.
+ */
+function extractReqNumberFromReport(reportLink) {
+  const m = String(reportLink || '').match(/\(([^)]+)\)/);
+  if (!m) return null;
+  const relPath = m[1].replace(/^\.\.\//, '');
+  const fullPath = join(REPORTS_ROOT, relPath);
+  if (!existsSync(fullPath)) return null;
+  try {
+    const content = readFileSync(fullPath, 'utf-8');
+    const urlLine = content.match(/^\*\*URL:\*\*\s*(\S+)/m);
+    return urlLine ? extractUrlJobId(urlLine[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Parse a score cell into a numeric value for score-upgrade decisions.
  *
@@ -585,7 +629,7 @@ for (const file of tsvFiles) {
   if (!duplicate) {
     // Company + role fuzzy match
     const normCompany = normalizeCompany(addition.company);
-    const additionReqNum = extractReqNumber(addition.notes);
+    const additionReqNum = extractReqNumber(addition.notes) || extractReqNumberFromReport(addition.report);
     duplicate = existingApps.find(app => {
       if (normalizeCompany(app.company) !== normCompany) return false;
       if (!roleFuzzyMatch(addition.role, app.role)) return false;
@@ -605,7 +649,7 @@ for (const file of tsvFiles) {
       // Only treat this as evidence the rows differ when BOTH sides carry an
       // extractable number and they disagree — if either side has none, fall
       // back to today's fuzzy-match-only behavior unchanged.
-      const appReqNum = extractReqNumber(app.notes);
+      const appReqNum = extractReqNumber(app.notes) || extractReqNumberFromReport(app.report);
       if (additionReqNum && appReqNum && additionReqNum !== appReqNum) return false;
       return true;
     });
@@ -617,19 +661,33 @@ for (const file of tsvFiles) {
 
     if (newScore > oldScore) {
       console.log(`🔄 Update: #${duplicate.num} ${addition.company} — ${addition.role} (${oldScore}→${newScore})`);
+      const updatedLine = buildRow({
+        num: duplicate.num, date: addition.date, company: addition.company, role: addition.role,
+        via: addition.via || duplicate.via || '—',
+        location: addition.location || duplicate.location || '—',
+        score: addition.score, status: duplicate.status, pdf: duplicate.pdf,
+        report: addition.report,
+        notes: `Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes}`,
+      });
+      // duplicate.raw lives in appLines for a pre-existing row, but in
+      // newLines for a row added earlier in THIS run (see the existingApps
+      // push in the "new entry" branch above) — a third same-run TSV for the
+      // same posting must still land somewhere real rather than silently
+      // vanish because neither array happened to contain it.
       const lineIdx = appLines.indexOf(duplicate.raw);
       if (lineIdx >= 0) {
-        const updatedLine = buildRow({
-          num: duplicate.num, date: addition.date, company: addition.company, role: addition.role,
-          via: addition.via || duplicate.via || '—',
-          location: addition.location || duplicate.location || '—',
-          score: addition.score, status: duplicate.status, pdf: duplicate.pdf,
-          report: addition.report,
-          notes: `Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes}`,
-        });
         appLines[lineIdx] = updatedLine;
-        updated++;
+      } else {
+        const newLineIdx = newLines.indexOf(duplicate.raw);
+        if (newLineIdx >= 0) newLines[newLineIdx] = updatedLine;
       }
+      // Keep the existingApps record itself current so a further same-run
+      // duplicate compares against the latest score/report, not the stale one.
+      duplicate.raw = updatedLine;
+      duplicate.score = addition.score;
+      duplicate.report = addition.report;
+      duplicate.notes = `Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes}`;
+      updated++;
     } else {
       console.log(`⏭️  Skip: ${addition.company} — ${addition.role} (existing #${duplicate.num} ${oldScore} >= new ${newScore})`);
       skipped++;
@@ -664,6 +722,21 @@ for (const file of tsvFiles) {
     newLines.push(newLine);
     added++;
     console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (${addition.score})`);
+
+    // Make this brand-new row visible to duplicate detection for the REST of
+    // this run. Without this, two TSVs describing the same posting that both
+    // arrive in one batch (neither pre-existing in applications.md yet) pass
+    // each other unnoticed — every duplicate check above only looks at
+    // existingApps, which was snapshotted once before this loop started. This
+    // is exactly how the same Fortinet "Cloud Solution Architect" posting
+    // landed as two separate rows (#40 and #45) from two parallel evaluation
+    // batches merged in the same run.
+    existingApps.push({
+      num: entryNum, date: addition.date, company: addition.company,
+      via: addition.via || '—', role: addition.role, location: addition.location || '—',
+      score: addition.score, status: addition.status, pdf: addition.pdf,
+      report: addition.report, notes: addition.notes, raw: newLine,
+    });
   }
 }
 

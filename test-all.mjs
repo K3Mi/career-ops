@@ -5286,6 +5286,104 @@ try {
   fail(`merge-tracker fuzzy dedup tests crashed: ${e.message}`);
 }
 
+// ── MERGE-TRACKER WITHIN-BATCH DUPLICATE GUARD ─────────────────────────
+// Two TSVs landing in the SAME merge run, both brand new to the tracker, that
+// describe the identical posting used to pass each other unnoticed — every
+// duplicate check only compared against existingApps, which was snapshotted
+// once before the loop started. This is exactly how one identical Fortinet
+// "Cloud Solution Architect" posting landed as two separate tracker rows
+// from two parallel evaluation batches merged in a single run.
+console.log('\n🧪 Testing merge-tracker within-batch duplicate guard...');
+try {
+  const batchTmp = mkdtempSync(join(tmpdir(), 'career-ops-batch-dup-'));
+  try {
+    mkdirSync(join(batchTmp, 'data'));
+    mkdirSync(join(batchTmp, 'reports'));
+    const additionsDir = join(batchTmp, 'additions');
+    mkdirSync(additionsDir);
+    const tracker = join(batchTmp, 'data', 'applications.md');
+    writeFileSync(tracker,
+      '# Applications Tracker\n\n' +
+      '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |\n' +
+      '|---|------|---------|------|-------|--------|-----|--------|-------|\n');
+    for (const n of ['040-fortinet-2026-07-18', '045-fortinet-2026-07-18']) {
+      writeFileSync(join(batchTmp, 'reports', `${n}.md`),
+        '# Evaluation: Fortinet — Cloud Solution Architect\n\n**URL:** https://edel.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001/job/22536\n');
+    }
+    writeFileSync(join(additionsDir, '040-fortinet.tsv'),
+      '40\t2026-07-18\tFortinet\tCloud Solution Architect\tEvaluated\t2.5/5\t❌\t[040](reports/040-fortinet-2026-07-18.md)\tfirst pass\n');
+    writeFileSync(join(additionsDir, '045-fortinet.tsv'),
+      '45\t2026-07-18\tFortinet\tCloud Solution Architect\tEvaluated\t2.5/5\t❌\t[045](reports/045-fortinet-2026-07-18.md)\tsecond pass, same batch\n');
+
+    const result = run(NODE, ['merge-tracker.mjs'], { env: { ...process.env, CAREER_OPS_TRACKER: tracker, CAREER_OPS_ADDITIONS: additionsDir } });
+    if (result === null) {
+      fail('merge-tracker.mjs crashed during within-batch duplicate test');
+    } else {
+      const merged = readFileSync(tracker, 'utf-8');
+      const rows = merged.split('\n').filter(l => l.includes('Cloud Solution Architect'));
+      if (rows.length === 1) {
+        pass('two same-batch TSVs for the identical posting collapse into one row');
+      } else {
+        fail(`within-batch duplicate guard broken: ${rows.length} 'Cloud Solution Architect' rows, expected 1`);
+      }
+    }
+  } finally {
+    rmSync(batchTmp, { recursive: true, force: true });
+  }
+} catch (e) {
+  fail(`merge-tracker within-batch duplicate test crashed: ${e.message}`);
+}
+
+// ── MERGE-TRACKER URL-SOURCED REQ-NUMBER GUARD ─────────────────────────
+// Two genuinely distinct postings at the same company, titles differing only
+// by a seniority prefix ("Solutions Architect" vs "Sr Solutions Architect"),
+// with NEITHER TSV's Notes column stating a req/job number in prose. The
+// Notes-only req guard (#1524) has nothing to grab, and roleFuzzyMatch's
+// token comparison strips seniority words as stopwords on both sides, so the
+// remaining token sets look identical and would otherwise conflate them. The
+// fallback must read each report's own **URL:** line and use its embedded
+// req ID to keep the rows apart.
+console.log('\n🧪 Testing merge-tracker URL-sourced req-number guard (distinct same-title postings)...');
+try {
+  const reqTmp = mkdtempSync(join(tmpdir(), 'career-ops-req-'));
+  try {
+    mkdirSync(join(reqTmp, 'data'));
+    mkdirSync(join(reqTmp, 'reports'));
+    const additionsDir = join(reqTmp, 'additions');
+    mkdirSync(additionsDir);
+    const tracker = join(reqTmp, 'data', 'applications.md');
+    writeFileSync(join(reqTmp, 'reports', '049-motorola-solutions-2026-07-18.md'),
+      '# Evaluation: Motorola Solutions — Sr Solutions Architect\n\n**URL:** https://motorolasolutions.wd5.myworkdayjobs.com/careers/job/Illinois-Remote-Work/Sr-Solutions-Architect_R66425\n');
+    writeFileSync(tracker,
+      '# Applications Tracker\n\n' +
+      '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |\n' +
+      '|---|------|---------|------|-------|--------|-----|--------|-------|\n' +
+      '| 49 | 2026-07-18 | Motorola Solutions | Sr Solutions Architect | 1.5/5 | Evaluated | ❌ | [049](../reports/049-motorola-solutions-2026-07-18.md) | citizenship blocker, no req# in notes |\n');
+    writeFileSync(join(reqTmp, 'reports', '048-motorola-solutions-2026-07-18.md'),
+      '# Evaluation: Motorola Solutions — Solutions Architect\n\n**URL:** https://motorolasolutions.wd5.myworkdayjobs.com/careers/job/Florida-Remote-Work/Solution-Architect_R66062-1\n');
+    writeFileSync(join(additionsDir, '048-motorola-solutions.tsv'),
+      '48\t2026-07-18\tMotorola Solutions\tSolutions Architect\tEvaluated\t2.2/5\t❌\t[048](reports/048-motorola-solutions-2026-07-18.md)\toff-target, no req# in notes\n');
+
+    const result = run(NODE, ['merge-tracker.mjs'], { env: { ...process.env, CAREER_OPS_TRACKER: tracker, CAREER_OPS_ADDITIONS: additionsDir } });
+    if (result === null) {
+      fail('merge-tracker.mjs crashed during URL-sourced req-number test');
+    } else {
+      const merged = readFileSync(tracker, 'utf-8');
+      const has49 = merged.includes('| 49 |') && merged.includes('Sr Solutions Architect') && merged.includes('1.5/5');
+      const has48 = /\|\s*48\s*\|/.test(merged) && merged.includes('Motorola Solutions | Solutions Architect |') && merged.includes('2.2/5');
+      if (has49 && has48) {
+        pass('distinct same-company postings differing only by a seniority prefix stay as two rows (URL req-id fallback)');
+      } else {
+        fail(`URL-sourced req guard broken: row49 intact=${has49}, row48 added=${has48}\n${merged}`);
+      }
+    }
+  } finally {
+    rmSync(reqTmp, { recursive: true, force: true });
+  }
+} catch (e) {
+  fail(`merge-tracker URL-sourced req-number test crashed: ${e.message}`);
+}
+
 // ── MERGE-TRACKER CROSS-CHANNEL VIA GUARD: NON-LATIN AGENCIES (#1603) ─────
 // normalizeCompany() strips [^a-z0-9], so two different non-Latin agency
 // names both collapse to '' and the #1596 cross-channel guard treated them

@@ -264,6 +264,7 @@ const SYSTEM_PATHS = [
   'CITATION.cff',
   '.editorconfig',
   '.github/',
+  '.mcp.json',
   'package.json',
   'build-cv-latex.mjs',
   'build-cv-html.mjs',
