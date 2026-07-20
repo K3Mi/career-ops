@@ -15,6 +15,7 @@ data/pdf-index.tsv
 data/agent-inbox.md
 data/active-interviews.md
 data/reply-candidates.json
+data/discard.log
 data/parser-output/**/*.json
 !data/parser-output/.gitkeep
 !data/parser-output/**/.gitkeep
@@ -116,6 +117,9 @@ package-lock.json
 
 # Planning (local scratchpad)
 plan/
+
+# Session handoff docs (personal application details — never commit)
+SESSION-HANDOFF*.md
 
 # Web
 .career-ops-web/logo-cache/
