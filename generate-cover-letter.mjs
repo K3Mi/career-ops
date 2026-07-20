@@ -81,7 +81,7 @@ function buildDateline(letter) {
 function buildAchievementsBlock(achievements) {
   if (!achievements || !achievements.length) return "";
   const items = achievements.map(ach => {
-    const lead = escapeHtml(ach.lead || "");
+    const lead = escapeHtml((ach.lead || "").replace(/,+\s*$/, ""));
     const impact = escapeHtml(ach.impact || "");
     return `    <li><b>${lead},</b> ${impact}</li>`;
   }).join("\n");
