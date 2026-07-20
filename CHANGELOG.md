@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.22.0](https://github.com/santifer/career-ops/compare/career-ops-v1.21.0...career-ops-v1.22.0) (2026-07-20)
+
+
+### Features
+
+* **expand:** add /expand mode to discover missing CV competencies ([#1533](https://github.com/santifer/career-ops/issues/1533)) ([1ea5ee6](https://github.com/santifer/career-ops/commit/1ea5ee6379a90dfb1bec17b01aa538a624953848)), closes [#1521](https://github.com/santifer/career-ops/issues/1521)
+* **scan:** add visa_filter for surfacing visa-sponsoring roles ([#1662](https://github.com/santifer/career-ops/issues/1662)) ([995c1dd](https://github.com/santifer/career-ops/commit/995c1ddab6eb1b3aba2fb7ef3e41ff2eb601cc6b)), closes [#2057](https://github.com/santifer/career-ops/issues/2057)
+
+
+### Bug Fixes
+
+* **arbeitsagentur:** only tag nationwide-remote when homeofficetyp is VOLLSTAENDIG ([#1981](https://github.com/santifer/career-ops/issues/1981)) ([b3b466c](https://github.com/santifer/career-ops/commit/b3b466ca69ca8bb6eb9d7e6484ed340faa10a607))
+* **providers:** build public SmartRecruiters URLs without /postings/ ([#2047](https://github.com/santifer/career-ops/issues/2047)) ([4624242](https://github.com/santifer/career-ops/commit/4624242367056d7c118249279c80b8bb8da62b04))
+* **verify-cv-facts:** stop a bare '&lt;' from swallowing source evidence ([#1995](https://github.com/santifer/career-ops/issues/1995)) ([050828b](https://github.com/santifer/career-ops/commit/050828b339f27cc398bf335d6f1c2b8ff2712145))
+
 ## [1.21.0](https://github.com/santifer/career-ops/compare/career-ops-v1.20.0...career-ops-v1.21.0) (2026-07-17)
 
 
