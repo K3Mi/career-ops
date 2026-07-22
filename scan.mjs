@@ -737,11 +737,15 @@ const DEDUP_STRIP_PARAMS = new Set([
  *
  * The path is lowercased because scan.mjs and scan-ats-full.mjs run as
  * separate processes and can independently produce different casing for the
- * identical posting (e.g. a Workday tenant/site path segment normalized
- * differently by each scanner), which a case-sensitive Set silently treats
- * as two distinct URLs. Path casing is not meaningfully distinct for any
- * provider these scanners target. Query values keep their original casing —
- * those can be identity-bearing (Greenhouse's `gh_jid`).
+ * identical posting — a Workday tenant/site path segment reached via the
+ * curated portals.yml entry vs. the reverse-ATS dataset, for instance. A
+ * case-sensitive key silently treats those as two distinct URLs, so the same
+ * role lands in pipeline.md twice. Path casing is not meaningfully distinct
+ * for any provider these scanners target.
+ *
+ * Query *values* keep their original casing — those can be identity-bearing
+ * (Greenhouse's `gh_jid`), which is also why DEDUP_STRIP_PARAMS is an
+ * allowlist rather than a blanket strip.
  *
  * Falls back to the raw string when the URL is malformed, preserving the
  * old byte-for-byte behavior for unparsable history rows.
