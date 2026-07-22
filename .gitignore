@@ -16,6 +16,7 @@ data/agent-inbox.md
 data/active-interviews.md
 data/reply-candidates.json
 data/discard.log
+data/pipeline-removed*.md
 data/parser-output/**/*.json
 !data/parser-output/.gitkeep
 !data/parser-output/**/.gitkeep
